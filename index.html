@@ -19,7 +19,8 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
 #sbar{width:100%;display:flex;align-items:center;gap:6px;font-size:9px;color:#555}
 .sdot{width:6px;height:6px;border-radius:50%;background:#555;flex-shrink:0}
 .sdot.live{background:#3d3;box-shadow:0 0 4px #3d3;animation:blink 2s infinite}
-.sdot.sim{background:#f0b429;box-shadow:0 0 4px #f0b429}
+.sdot.loading{background:#f0b429;animation:blink .6s infinite}
+.sdot.err{background:#e44}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 #tabs{display:flex;background:#1a1a1a;border-bottom:1px solid #2a2a2a;overflow-x:auto;scrollbar-width:none}
 #tabs::-webkit-scrollbar{display:none}
@@ -37,6 +38,7 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
 .cell-name{font-size:9px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
 .cell-price{font-size:14px;font-weight:bold;line-height:1.15;white-space:nowrap;overflow:hidden}
 .cell.up .cell-price{color:var(--up)}.cell.down .cell-price{color:var(--down)}.cell.flat .cell-price{color:#ddd}
+.cell.loading .cell-price{color:#555;font-size:11px}
 .cell-chg{font-size:9px;display:flex;gap:4px;align-items:baseline;flex-wrap:wrap}
 .cell.up .chg-p{color:var(--up)}.cell.down .chg-p{color:var(--down)}.cell.flat .chg-p{color:#777}
 .chg-a{color:#555;font-size:9px}
@@ -67,7 +69,6 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
 .pos-tbl td:first-child{text-align:left}
 .pos-tbl tr:hover td{background:#1a1a1a}
 .pn{font-weight:bold;color:#ccc;font-size:11px;display:block}.ps{color:#555;font-size:9px}
-.pup{color:var(--up)}.pdown{color:var(--down)}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;align-items:center;justify-content:center}
 .overlay.show{display:flex}
 .mbox{background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:14px;width:min(440px,94vw);max-height:90vh;overflow-y:auto}
@@ -95,8 +96,9 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
   <div class="hdr-r">
     <div id="clock"></div>
     <button class="hbtn" id="btn-inv" onclick="toggleInv()">🔄 色反転</button>
+    <button class="hbtn" onclick="doRefresh()">⟳ 更新</button>
   </div>
-  <div id="sbar"><div class="sdot sim" id="sdot"></div><span id="stxt">シミュレーションデータ</span></div>
+  <div id="sbar"><div class="sdot loading" id="sdot"></div><span id="stxt">取得中...</span></div>
 </div>
 <div id="tabs">
   <div class="tab active" data-tab="all">全て</div>
@@ -109,17 +111,16 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
 </div>
 <div id="main"></div>
 <div id="port-view"></div>
-<div id="ftr">※ デモ用シミュレーションデータです。実際の投資判断には使用しないでください。</div>
+<div id="ftr">データ: Yahoo Finance（非公式・遅延あり）投資判断には使用しないでください</div>
 <div class="overlay" id="add-modal">
   <div class="mbox">
     <h3>銘柄を追加</h3>
-    <div class="frow"><label>銘柄名・ティッカー</label><input id="ai-ticker" placeholder="例: 7203.T  AAPL  BTC"><div class="hint">自由に入力（シミュレーションデータとして追加されます）</div></div>
-    <div class="frow"><label>表示名</label><input id="ai-name" placeholder="例: トヨタ自動車"></div>
-    <div class="frow"><label>現在値（参考価格）</label><input id="ai-price" type="number" placeholder="例: 3500"></div>
+    <div class="frow"><label>ティッカーシンボル</label><input id="ai-ticker" placeholder="例: 7203.T  AAPL  BTC-USD" autocapitalize="characters"><div class="hint">日本株: 7203.T　米株: AAPL　暗号資産: BTC-USD</div></div>
+    <div class="frow"><label>表示名（省略可）</label><input id="ai-name" placeholder="例: トヨタ自動車"></div>
     <div class="frow"><label>保有株数</label><input id="ai-qty" type="number" min="0" step="any" placeholder="0"></div>
     <div class="frow"><label>平均取得単価</label><input id="ai-cost" type="number" min="0" step="any" placeholder="0"></div>
     <div class="merr" id="ai-err"></div>
-    <div class="mbtns"><button class="pbtn" onclick="closeAddModal()">キャンセル</button><button class="pbtn pbtn-add" onclick="doAdd()">追加</button></div>
+    <div class="mbtns"><button class="pbtn" onclick="closeAddModal()">キャンセル</button><button class="pbtn pbtn-add" id="ai-addbtn" onclick="doAdd()">追加</button></div>
   </div>
 </div>
 <div class="overlay" id="det-modal">
@@ -128,45 +129,81 @@ body.inv{--up:#e44;--down:#3d3;--up-bg:#3a1a1a;--down-bg:#1a3a1a}
     <div class="dprice" id="d-price">-</div>
     <div class="dchg" id="d-chg">-</div>
     <div class="dcv"><canvas id="dcvs"></canvas></div>
-    <div class="dnote">※ シミュレーションデータ（実際の価格ではありません）</div>
+    <div class="dnote">Yahoo Finance（非公式API）/ 遅延の可能性あり</div>
   </div>
 </div>
 <script>
 const SECTIONS=[
   {id:'index',label:'株価指数',items:[
-    {id:'nk225',name:'日経平均',base:38200,d:0},{id:'topix',name:'TOPIX',base:2710,d:2},
-    {id:'nk225f',name:'日経先物',base:38350,d:0},{id:'dow',name:'NYダウ',base:39450,d:0},
-    {id:'sp500',name:'S&P500',base:5215,d:2},{id:'nasdaq',name:'NASDAQ',base:16480,d:2},
-    {id:'vix',name:'VIX',base:14.8,d:2},{id:'ftse',name:'FTSE100',base:8120,d:2},
-    {id:'dax',name:'DAX',base:18350,d:2},{id:'cac',name:'CAC40',base:8010,d:2},
-    {id:'sse',name:'上海総合',base:3105,d:2},{id:'hsi',name:'ハンセン',base:18700,d:0},
-    {id:'kospi',name:'KOSPI',base:2720,d:2}]},
+    {id:'nk225',name:'日経平均',sym:'%5EN225',d:0},{id:'topix',name:'TOPIX',sym:'%5ETOPX',d:2},
+    {id:'dow',name:'NYダウ',sym:'%5EDJI',d:0},{id:'sp500',name:'S&P500',sym:'%5EGSPC',d:2},
+    {id:'nasdaq',name:'NASDAQ',sym:'%5EIXIC',d:2},{id:'vix',name:'VIX',sym:'%5EVIX',d:2},
+    {id:'ftse',name:'FTSE100',sym:'%5EFTSE',d:2},{id:'dax',name:'DAX',sym:'%5EGDAXI',d:2},
+    {id:'cac',name:'CAC40',sym:'%5EFCHI',d:2},{id:'sse',name:'上海総合',sym:'%5ESSEC',d:2},
+    {id:'hsi',name:'ハンセン',sym:'%5EHSI',d:0},{id:'kospi',name:'KOSPI',sym:'%5EKS11',d:2}]},
   {id:'fx',label:'為替 (FX)',items:[
-    {id:'usdjpy',name:'ドル円',base:155.12,d:3},{id:'eurjpy',name:'ユーロ円',base:168.45,d:3},
-    {id:'gbpjpy',name:'ポンド円',base:196.80,d:3},{id:'audjpy',name:'豪ドル円',base:101.50,d:3},
-    {id:'eurusd',name:'EUR/USD',base:1.0855,d:4},{id:'gbpusd',name:'GBP/USD',base:1.2680,d:4},
-    {id:'audusd',name:'AUD/USD',base:0.6540,d:4},{id:'cnyjpy',name:'人民元円',base:21.35,d:3}]},
+    {id:'usdjpy',name:'ドル円',sym:'JPY%3DX',d:3},{id:'eurjpy',name:'ユーロ円',sym:'EURJPY%3DX',d:3},
+    {id:'gbpjpy',name:'ポンド円',sym:'GBPJPY%3DX',d:3},{id:'audjpy',name:'豪ドル円',sym:'AUDJPY%3DX',d:3},
+    {id:'eurusd',name:'EUR/USD',sym:'EURUSD%3DX',d:4},{id:'gbpusd',name:'GBP/USD',sym:'GBPUSD%3DX',d:4},
+    {id:'audusd',name:'AUD/USD',sym:'AUDUSD%3DX',d:4},{id:'cnyjpy',name:'人民元円',sym:'CNYJPY%3DX',d:3}]},
   {id:'crypto',label:'暗号資産',items:[
-    {id:'btcjpy',name:'BTC/JPY',base:10580000,d:0},{id:'ethjpy',name:'ETH/JPY',base:545000,d:0},
-    {id:'btcusd',name:'BTC/USD',base:68000,d:0},{id:'ethusd',name:'ETH/USD',base:3500,d:0},
-    {id:'solusd',name:'SOL/USD',base:170,d:2},{id:'xrpusd',name:'XRP/USD',base:0.53,d:4}]},
+    {id:'btcusd',name:'BTC/USD',sym:'BTC-USD',d:0},{id:'ethusd',name:'ETH/USD',sym:'ETH-USD',d:0},
+    {id:'solusd',name:'SOL/USD',sym:'SOL-USD',d:2},{id:'xrpusd',name:'XRP/USD',sym:'XRP-USD',d:4},
+    {id:'bnbusd',name:'BNB/USD',sym:'BNB-USD',d:2}]},
   {id:'commodity',label:'商品',items:[
-    {id:'gold',name:'金 (Gold)',base:2348,d:2},{id:'silver',name:'銀 (Silver)',base:27.4,d:3},
-    {id:'oil',name:'WTI原油',base:78.3,d:2},{id:'ng',name:'天然ガス',base:2.15,d:3}]},
+    {id:'gold',name:'金 (Gold)',sym:'GC%3DF',d:2},{id:'silver',name:'銀 (Silver)',sym:'SI%3DF',d:3},
+    {id:'oil',name:'WTI原油',sym:'CL%3DF',d:2},{id:'ng',name:'天然ガス',sym:'NG%3DF',d:3}]},
   {id:'bond',label:'債券',items:[
-    {id:'us2y',name:'米2年債',base:4.854,d:3},{id:'us10y',name:'米10年債',base:4.421,d:3},
-    {id:'us30y',name:'米30年債',base:4.553,d:3},{id:'jp10y',name:'日10年債',base:0.882,d:3}]}
+    {id:'us2y',name:'米2年債',sym:'%5EIRX',d:3},{id:'us10y',name:'米10年債',sym:'%5ETNX',d:3},
+    {id:'us30y',name:'米30年債',sym:'%5ETYX',d:3},{id:'jp10y',name:'日10年債',sym:'%5EJGBS',d:3}]}
 ];
 const ALL_ITEMS=SECTIONS.flatMap(s=>s.items);
 const S={};
-ALL_ITEMS.forEach(it=>{
-  const n=(Math.random()-.5)*.018,p=it.base*(1+n),hist=[];
-  let h=it.base;for(let i=0;i<50;i++){h*=1+(Math.random()-.49)*.004;hist.push(h);}hist.push(p);
-  S[it.id]={price:p,open:it.base,prev:p,hist,d:it.d};
-});
-let portfolio=JSON.parse(localStorage.getItem('pf3')||'[]');
-let portHistory=JSON.parse(localStorage.getItem('pfh3')||'[]');
+ALL_ITEMS.forEach(it=>{S[it.id]={price:null,open:null,prev:null,hist:[],loaded:false,err:false,d:it.d};});
+let portfolio=JSON.parse(localStorage.getItem('pf4')||'[]');
+let portHistory=JSON.parse(localStorage.getItem('pfh4')||'[]');
 let invertColor=false,currentTab='all',detOpenId=null;
+const INTERVAL=60000;
+
+async function fetchQuote(sym){
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=5m&range=1d`;
+  const res=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'},signal:AbortSignal.timeout(10000)});
+  if(!res.ok)throw new Error(`HTTP ${res.status}`);
+  const j=await res.json();
+  const r=j?.chart?.result?.[0];if(!r)throw new Error('no result');
+  const price=r.meta.regularMarketPrice;
+  const open=r.meta.chartPreviousClose??r.meta.previousClose??price;
+  const closes=r.indicators?.quote?.[0]?.close?.filter(v=>v!=null)??[];
+  return{price,open,hist:closes.length>1?closes:[open,price]};
+}
+function setStatus(type,msg){
+  const dot=document.getElementById('sdot'),txt=document.getElementById('stxt');
+  dot.className='sdot '+(type==='live'?'live':type==='loading'?'loading':'err');
+  txt.textContent=msg;
+}
+async function fetchAll(){
+  const items=currentTab==='all'?ALL_ITEMS:currentTab==='portfolio'?[]:SECTIONS.find(s=>s.id===currentTab)?.items??[];
+  if(!items.length)return;
+  setStatus('loading','取得中...');
+  let ok=0,fail=0;
+  const delay=ms=>new Promise(r=>setTimeout(r,ms));
+  for(let i=0;i<items.length;i++){
+    const it=items[i];
+    fetchQuote(it.sym).then(d=>{
+      const st=S[it.id];st.prev=st.price??d.open;st.price=d.price;st.open=d.open;st.hist=d.hist;st.loaded=true;st.err=false;ok++;
+      updateCell(it.id);if(detOpenId===it.id)updateDet(it.id,it);
+      if(ok+fail===items.length){setStatus('live',`最終更新: ${nowStr()} (${ok}件)`);recordPortHistory();if(currentTab==='portfolio')renderPortfolio();}
+    }).catch(()=>{S[it.id].err=true;fail++;updateCell(it.id);
+      if(ok+fail===items.length)setStatus(fail===items.length?'err':'live',`最終更新: ${nowStr()} (${ok}件, ${fail}件失敗)`);
+    });
+    if(i%4===3)await delay(200);
+  }
+}
+async function fetchSingle(id,sym){
+  if(!S[id])S[id]={price:null,open:null,prev:null,hist:[],loaded:false,err:false,d:2};
+  try{const d=await fetchQuote(sym);const st=S[id];st.prev=st.price??d.open;st.price=d.price;st.open=d.open;st.hist=d.hist;st.loaded=true;st.err=false;return true;}
+  catch(e){S[id].err=true;return false;}
+}
 function fmt(v,d){if(v==null)return'---';if(d===0)return Math.round(v).toLocaleString('ja-JP');return parseFloat(v.toFixed(d)).toLocaleString('ja-JP',{minimumFractionDigits:d,maximumFractionDigits:d});}
 function fmtM(v){if(v==null)return'---';const a=Math.abs(v),s=v<0?'-':'';if(a>=1e8)return s+(a/1e8).toFixed(2)+'億円';if(a>=1e4)return s+(a/1e4).toFixed(1)+'万円';return s+Math.round(a).toLocaleString()+'円';}
 function getDir(p,o){if(p==null||o==null)return'flat';if(p>o*1.000001)return'up';if(p<o*0.999999)return'down';return'flat';}
@@ -178,36 +215,21 @@ function drawChart(canvas,hist,dRaw,bg='#111'){
   const dpr=devicePixelRatio||1,W=canvas.width=canvas.offsetWidth*dpr,H=canvas.height=canvas.offsetHeight*dpr;
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H);ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
   if(!hist||hist.length<2)return;
-  const col=dirCol(dRaw),hr=parseInt(col.replace('#',''),16),r=(hr>>16)&255,g=(hr>>8)&255,b=hr&255;
-  const rgba=a=>`rgba(${r},${g},${b},${a})`;
+  const col=dirCol(dRaw),hr=parseInt(col.replace('#',''),16),r=(hr>>16)&255,g=(hr>>8)&255,b=hr&255,rgba=a=>`rgba(${r},${g},${b},${a})`;
   const min=Math.min(...hist),max=Math.max(...hist),rng=max-min||max*.001||1;
   const pad={t:4,b:4,l:2,r:2},w=W-pad.l-pad.r,h=H-pad.t-pad.b;
   const pts=hist.map((v,i)=>({x:pad.l+(i/(hist.length-1))*w,y:pad.t+h-((v-min)/rng)*h}));
   const gr=ctx.createLinearGradient(0,pad.t,0,pad.t+h);gr.addColorStop(0,rgba(.28));gr.addColorStop(1,rgba(0));
-  ctx.beginPath();pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
-  ctx.lineTo(pts[pts.length-1].x,pad.t+h);ctx.lineTo(pts[0].x,pad.t+h);ctx.closePath();ctx.fillStyle=gr;ctx.fill();
-  ctx.beginPath();pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
-  ctx.strokeStyle=col;ctx.lineWidth=1.5*dpr;ctx.lineJoin='round';ctx.stroke();
+  ctx.beginPath();pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.lineTo(pts[pts.length-1].x,pad.t+h);ctx.lineTo(pts[0].x,pad.t+h);ctx.closePath();ctx.fillStyle=gr;ctx.fill();
+  ctx.beginPath();pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.strokeStyle=col;ctx.lineWidth=1.5*dpr;ctx.lineJoin='round';ctx.stroke();
   const lp=pts[pts.length-1];ctx.beginPath();ctx.arc(lp.x,lp.y,2.5*dpr,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
-}
-function tick(){
-  const pool=currentTab==='all'?ALL_ITEMS:SECTIONS.find(s=>s.id===currentTab)?.items??[];
-  const n=4+Math.floor(Math.random()*6);
-  [...pool].sort(()=>Math.random()-.5).slice(0,n).forEach(it=>{
-    const st=S[it.id];st.prev=st.price;
-    const vol=it.base>10000?.0006:it.base>100?.001:.002;
-    st.price=Math.max(it.base*.5,st.price*(1+(Math.random()-.489)*vol));
-    st.hist.push(st.price);if(st.hist.length>60)st.hist.shift();updateCell(it.id);
-  });
-  if(currentTab==='portfolio')renderPortfolio();
-  recordPortHistory();
 }
 function buildDOM(){
   const main=document.getElementById('main');main.innerHTML='';
   const secs=currentTab==='all'?SECTIONS:SECTIONS.filter(s=>s.id===currentTab);
   secs.forEach(sec=>{
     const h=document.createElement('div');h.className='sec-head';h.textContent=sec.label;main.appendChild(h);
-    const g=document.createElement('div');g.className='grid';g.id='g-'+sec.id;
+    const g=document.createElement('div');g.className='grid';
     sec.items.forEach(it=>g.appendChild(makeCellEl(it)));main.appendChild(g);
   });
   requestAnimationFrame(()=>{
@@ -216,51 +238,56 @@ function buildDOM(){
   });
 }
 function makeCellEl(it){
-  const st=S[it.id],d=getDir(st.price,st.open),cd=cssDir(d);
-  const chg=st.price-st.open,pct=chg/st.open*100,sgn=chg>=0?'+':'';
-  const el=document.createElement('div');el.className=`cell ${cd}`;el.id='c-'+it.id;el.onclick=()=>openDet(it.id,it);
-  el.innerHTML=`<div class="cell-name">${it.name}</div><div class="cell-price">${fmt(st.price,it.d)}</div><div class="cell-chg"><span class="chg-p">${sgn}${pct.toFixed(2)}%</span><span class="chg-a">${sgn}${fmt(chg,it.d)}</span></div><div class="cell-cv"><canvas></canvas></div>`;
+  const st=S[it.id],loaded=st?.loaded,err=st?.err;
+  const d=getDir(st?.price,st?.open),cd=cssDir(d);
+  const chg=loaded?(st.price-st.open):0,pct=st?.open?chg/st.open*100:0,sgn=chg>=0?'+':'';
+  const el=document.createElement('div');el.className=`cell ${err?'flat':loaded?cd:'loading'}`;el.id='c-'+it.id;el.onclick=()=>openDet(it.id,it);
+  el.innerHTML=`<div class="cell-name">${it.name}</div><div class="cell-price">${loaded?fmt(st.price,it.d):err?'取得失敗':'取得中...'}</div><div class="cell-chg">${loaded?`<span class="chg-p">${sgn}${pct.toFixed(2)}%</span><span class="chg-a">${sgn}${fmt(chg,it.d)}</span>`:''}</div><div class="cell-cv"><canvas></canvas></div>`;
   return el;
 }
 function updateCell(id){
   const el=document.getElementById('c-'+id);if(!el)return;
   const it=ALL_ITEMS.find(i=>i.id===id)??portfolio.find(p=>p.id===id);if(!it)return;
-  const st=S[id],d=getDir(st.price,st.open),cd=cssDir(d);
-  const chg=st.price-st.open,pct=chg/st.open*100,sgn=chg>=0?'+':'';
-  el.className=`cell ${cd}`;
-  el.querySelector('.cell-price').textContent=fmt(st.price,it.d??2);
-  el.querySelector('.cell-chg').innerHTML=`<span class="chg-p">${sgn}${pct.toFixed(2)}%</span><span class="chg-a">${sgn}${fmt(chg,it.d??2)}</span>`;
-  drawChart(el.querySelector('canvas'),st.hist,d);
-  if(st.prev!==st.price){const f=st.price>st.prev?'fu':'fd';el.classList.remove('fu','fd');void el.offsetWidth;el.classList.add(f);el.addEventListener('animationend',()=>el.classList.remove(f),{once:true});}
+  const st=S[id],loaded=st?.loaded,err=st?.err,d=getDir(st?.price,st?.open),cd=cssDir(d);
+  const chg=loaded?(st.price-st.open):0,pct=st?.open?chg/st.open*100:0,sgn=chg>=0?'+':'';
+  el.className=`cell ${err?'flat':loaded?cd:'loading'}`;
+  el.querySelector('.cell-price').textContent=loaded?fmt(st.price,it.d??2):err?'取得失敗':'取得中...';
+  el.querySelector('.cell-chg').innerHTML=loaded?`<span class="chg-p">${sgn}${pct.toFixed(2)}%</span><span class="chg-a">${sgn}${fmt(chg,it.d??2)}</span>`:'';
+  drawChart(el.querySelector('canvas'),st?.hist??[],d);
+  if(st?.prev!=null&&st?.price!=null&&st.prev!==st.price){const f=st.price>st.prev?'fu':'fd';el.classList.remove('fu','fd');void el.offsetWidth;el.classList.add(f);el.addEventListener('animationend',()=>el.classList.remove(f),{once:true});}
 }
-function savePF(){localStorage.setItem('pf3',JSON.stringify(portfolio));}
+function savePF(){localStorage.setItem('pf4',JSON.stringify(portfolio));}
 function recordPortHistory(){
   let tot=0,any=false;
-  portfolio.forEach(p=>{const st=S[p.id];if(!st||!p.qty)return;tot+=st.price*p.qty;any=true;});
+  portfolio.forEach(p=>{const st=S[p.id];if(!st?.loaded||!p.qty)return;tot+=st.price*p.qty;any=true;});
   if(!any)return;
   const now=Date.now();portHistory.push({t:now,v:tot});
-  portHistory=portHistory.filter(h=>h.t>=now-7*86400000);localStorage.setItem('pfh3',JSON.stringify(portHistory));
+  portHistory=portHistory.filter(h=>h.t>=now-7*86400000);localStorage.setItem('pfh4',JSON.stringify(portHistory));
 }
 function renderPortfolio(){
   const view=document.getElementById('port-view');
   let totV=0,totC=0,anyV=false;
-  portfolio.forEach(p=>{const st=S[p.id];if(st&&p.qty){totV+=st.price*p.qty;anyV=true;}totC+=(p.cost||0)*(p.qty||0);});
+  portfolio.forEach(p=>{const st=S[p.id];if(st?.loaded&&p.qty){totV+=st.price*p.qty;anyV=true;}totC+=(p.cost||0)*(p.qty||0);});
   const prof=anyV&&totC>0?totV-totC:null,profP=prof!=null&&totC>0?prof/totC*100:null;
   const pc=prof==null?'':cssDir(prof>=0?'up':'down');
   const rows=portfolio.map(p=>{
-    const st=S[p.id],pr=st?.price,d=getDir(pr,st?.open),cd=cssDir(d);
-    const chg=pr-(st?.open??pr),pct=st?.open?chg/st.open*100:0,sgn=chg>=0?'+':'';
-    const posV=p.qty?pr*p.qty:null,cost=p.cost&&p.qty?p.cost*p.qty:null;
+    const st=S[p.id],pr=st?.price,loaded=st?.loaded,d=getDir(pr,st?.open),cd=cssDir(d);
+    const chg=loaded?(pr-(st?.open??pr)):0,pct=st?.open?chg/st.open*100:0,sgn=chg>=0?'+':'';
+    const posV=loaded&&p.qty?pr*p.qty:null,cost=p.cost&&p.qty?p.cost*p.qty:null;
     const prof2=posV!=null&&cost!=null?posV-cost:null,profP2=prof2!=null&&cost>0?prof2/cost*100:null;
     const dp=p.d??2;
-    return`<tr><td><span class="pn">${p.name||p.id}</span><span class="ps">${p.id}</span></td><td class="p${cd}">${fmt(pr,dp)}</td><td class="p${cd}">${sgn}${pct.toFixed(2)}%</td><td>${p.qty!=null?p.qty.toLocaleString():'-'}</td><td>${posV!=null?fmtM(posV):'-'}</td><td class="${prof2!=null?'p'+cssDir(prof2>=0?'up':'down'):''}">
-${prof2!=null?`${prof2>=0?'+':''}${fmtM(prof2)}<br><small>${profP2!=null?(profP2>=0?'+':'')+profP2.toFixed(2)+'%':''}</small>`:'-'}</td><td><button class="pbtn pbtn-del" onclick="delPF('${p.id}')">✕</button></td></tr>`;
+    return`<tr><td><span class="pn">${p.name||p.id}</span><span class="ps">${p.ticker||p.id}</span></td><td class="p${cd}">${loaded?fmt(pr,dp):'...'}</td><td class="p${cd}">${loaded?`${sgn}${pct.toFixed(2)}%`:''}</td><td>${p.qty!=null?p.qty.toLocaleString():'-'}</td><td>${posV!=null?fmtM(posV):'-'}</td><td class="${prof2!=null?'p'+cssDir(prof2>=0?'up':'down'):''}">${prof2!=null?`${prof2>=0?'+':''}${fmtM(prof2)}<br><small>${profP2!=null?(profP2>=0?'+':'')+profP2.toFixed(2)+'%':''}</small>`:'-'}</td><td><button class="pbtn pbtn-del" onclick="delPF('${p.id}')">✕</button></td></tr>`;
   }).join('');
-  view.innerHTML=`<div class="port-hdr"><h3>📊 ポートフォリオ</h3><button class="pbtn pbtn-add" onclick="openAddModal()">＋ 追加</button></div>
+  view.innerHTML=`<div class="port-hdr"><h3>📊 ポートフォリオ</h3><div style="display:flex;gap:6px"><button class="pbtn" onclick="refreshPort()">⟳ 更新</button><button class="pbtn pbtn-add" onclick="openAddModal()">＋ 追加</button></div></div>
 <div class="sum-grid"><div class="sum-box"><div class="sum-lbl">評価額合計</div><div class="sum-val">${anyV?fmtM(totV):'---'}</div></div><div class="sum-box"><div class="sum-lbl">取得原価</div><div class="sum-val">${totC>0?fmtM(totC):'---'}</div></div><div class="sum-box"><div class="sum-lbl">損益</div><div class="sum-val ${pc}">${prof!=null?`${prof>=0?'+':''}${fmtM(prof)}${profP!=null?`<br><small style="font-size:11px">${profP>=0?'+':''}${profP.toFixed(2)}%</small>`:''}`:'---'}</div></div></div>
 <div class="pch-wrap"><h4>資産推移（7日）</h4><canvas id="pch"></canvas></div>
 ${portfolio.length===0?`<div style="text-align:center;color:#444;padding:30px;font-size:12px">銘柄を追加してください<br><br><button class="pbtn pbtn-add" onclick="openAddModal()">＋ 銘柄追加</button></div>`:`<div style="overflow-x:auto"><table class="pos-tbl"><thead><tr><th style="text-align:left">銘柄</th><th>現在値</th><th>前日比</th><th>株数</th><th>評価額</th><th>損益</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
   requestAnimationFrame(drawPortChart);
+}
+async function refreshPort(){
+  setStatus('loading','ポートフォリオ更新中...');
+  for(const p of portfolio)await fetchSingle(p.id,encodeURIComponent(p.ticker));
+  recordPortHistory();renderPortfolio();setStatus('live',`最終更新: ${nowStr()}`);
 }
 function drawPortChart(){
   const canvas=document.getElementById('pch');if(!canvas)return;
@@ -271,8 +298,7 @@ function drawPortChart(){
   const vals=data.map(h=>h.v),min=Math.min(...vals)*.998,max=Math.max(...vals)*1.002,rng=max-min||max*.01;
   const pad={t:12,b:18,l:10,r:60},w=W-pad.l-pad.r,h=H-pad.t-pad.b;
   const first=vals[0],last=vals[vals.length-1],col=dirCol(getDir(last,first));
-  const hr2=parseInt(col.replace('#',''),16),r2=(hr2>>16)&255,g2=(hr2>>8)&255,b2=hr2&255;
-  const rgba2=a=>`rgba(${r2},${g2},${b2},${a})`;
+  const hr2=parseInt(col.replace('#',''),16),r2=(hr2>>16)&255,g2=(hr2>>8)&255,b2=hr2&255,rgba2=a=>`rgba(${r2},${g2},${b2},${a})`;
   ctx.strokeStyle='#252525';ctx.lineWidth=dpr;[1,2].forEach(i=>{const y=pad.t+h*(i/3);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+w,y);ctx.stroke();});
   const pts=data.map((h2,i)=>({x:pad.l+(data.length===1?w/2:(i/(data.length-1))*w),y:pad.t+h-((h2.v-min)/rng)*h}));
   const gr=ctx.createLinearGradient(0,pad.t,0,pad.t+h);gr.addColorStop(0,rgba2(.3));gr.addColorStop(1,rgba2(0));
@@ -282,23 +308,25 @@ function drawPortChart(){
   const ft=t=>{const d2=new Date(t);return`${d2.getMonth()+1}/${d2.getDate()} ${String(d2.getHours()).padStart(2,'0')}:${String(d2.getMinutes()).padStart(2,'0')}`;};
   ctx.fillStyle='#444';ctx.font=`${8*dpr}px sans-serif`;ctx.textAlign='left';ctx.fillText(ft(data[0].t),pad.l,H-2*dpr);ctx.textAlign='right';ctx.fillText(ft(data[data.length-1].t),pad.l+w,H-2*dpr);
 }
-function openAddModal(){['ai-ticker','ai-name','ai-price','ai-qty','ai-cost'].forEach(id=>document.getElementById(id).value='');document.getElementById('ai-err').textContent='';document.getElementById('add-modal').classList.add('show');setTimeout(()=>document.getElementById('ai-ticker').focus(),100);}
+function openAddModal(){['ai-ticker','ai-name','ai-qty','ai-cost'].forEach(id=>document.getElementById(id).value='');document.getElementById('ai-err').textContent='';document.getElementById('ai-addbtn').disabled=false;document.getElementById('ai-addbtn').textContent='追加';document.getElementById('add-modal').classList.add('show');setTimeout(()=>document.getElementById('ai-ticker').focus(),100);}
 function closeAddModal(){document.getElementById('add-modal').classList.remove('show');}
-function doAdd(){
+async function doAdd(){
   const ticker=document.getElementById('ai-ticker').value.trim().toUpperCase();
   const name=document.getElementById('ai-name').value.trim()||ticker;
-  const price=parseFloat(document.getElementById('ai-price').value)||1000;
   const qty=parseFloat(document.getElementById('ai-qty').value)||0;
   const cost=parseFloat(document.getElementById('ai-cost').value)||0;
-  const err=document.getElementById('ai-err');
-  if(!ticker){err.textContent='銘柄名を入力してください';return;}
-  if(portfolio.find(p=>p.id===ticker)){err.textContent='すでに登録済みです';return;}
-  const dp=ticker.endsWith('.T')?0:price>=100?2:price>=1?4:6;
-  S[ticker]={price,open:price*(.98+Math.random()*.04),prev:price,hist:[price*(1+(Math.random()-.5)*.02),price],d:dp};
-  portfolio.push({id:ticker,name,qty,cost,d:dp});savePF();closeAddModal();
+  const err=document.getElementById('ai-err'),btn=document.getElementById('ai-addbtn');
+  if(!ticker){err.textContent='ティッカーを入力してください';return;}
+  if(portfolio.find(p=>p.ticker===ticker)){err.textContent='すでに登録済みです';return;}
+  btn.disabled=true;btn.textContent='確認中...';err.textContent='';
+  const id='pf_'+ticker.replace(/[^A-Z0-9]/g,'_');
+  const ok=await fetchSingle(id,encodeURIComponent(ticker));
+  if(!ok){err.textContent='取得失敗。ティッカーを確認してください。';btn.disabled=false;btn.textContent='追加';return;}
+  const price=S[id].price,dp=ticker.endsWith('.T')?0:price>=100?2:price>=1?4:6;
+  portfolio.push({id,ticker,name,qty,cost,d:dp});savePF();closeAddModal();
   if(currentTab==='portfolio')renderPortfolio();
 }
-function delPF(id){if(!confirm(`「${id}」を削除しますか？`))return;portfolio=portfolio.filter(p=>p.id!==id);savePF();renderPortfolio();}
+function delPF(id){if(!confirm('削除しますか？'))return;portfolio=portfolio.filter(p=>p.id!==id);savePF();renderPortfolio();}
 function openDet(id,it){detOpenId=id;updateDet(id,it);document.getElementById('det-modal').classList.add('show');}
 function closeDet(){detOpenId=null;document.getElementById('det-modal').classList.remove('show');}
 document.getElementById('det-modal').addEventListener('click',e=>{if(e.target===document.getElementById('det-modal'))closeDet();});
@@ -307,25 +335,26 @@ function updateDet(id,it){
   const d=getDir(st?.price,st?.open),col=dirCol(d);
   const chg=(st?.price??0)-(st?.open??0),pct=st?.open?chg/st.open*100:0,sgn=chg>=0?'+':'';
   const dp=it.d??2;
-  document.getElementById('d-name').textContent=it.name||id;document.getElementById('d-sym').textContent=id;
-  document.getElementById('d-price').textContent=fmt(st?.price,dp);document.getElementById('d-price').style.color=col;
-  document.getElementById('d-chg').innerHTML=`<span style="color:${col}">${sgn}${pct.toFixed(2)}%　${sgn}${fmt(chg,dp)}</span>`;
+  document.getElementById('d-name').textContent=it.name||id;document.getElementById('d-sym').textContent=it.ticker||it.sym||id;
+  document.getElementById('d-price').textContent=st?.loaded?fmt(st.price,dp):'取得中...';document.getElementById('d-price').style.color=col;
+  document.getElementById('d-chg').innerHTML=st?.loaded?`<span style="color:${col}">${sgn}${pct.toFixed(2)}%　${sgn}${fmt(chg,dp)}</span>`:'';
   requestAnimationFrame(()=>drawChart(document.getElementById('dcvs'),st?.hist??[],d,'#111'));
 }
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');currentTab=t.dataset.tab;
   const main=document.getElementById('main'),pv=document.getElementById('port-view');
-  if(currentTab==='portfolio'){main.style.display='none';pv.style.display='block';renderPortfolio();}
-  else{main.style.display='block';pv.style.display='none';buildDOM();}
+  if(currentTab==='portfolio'){main.style.display='none';pv.style.display='block';renderPortfolio();refreshPort();}
+  else{main.style.display='block';pv.style.display='none';buildDOM();fetchAll();}
 }));
 function toggleInv(){invertColor=!invertColor;document.body.classList.toggle('inv',invertColor);document.getElementById('btn-inv').classList.toggle('on',invertColor);const items=currentTab==='all'?ALL_ITEMS:SECTIONS.find(s=>s.id===currentTab)?.items??[];items.forEach(it=>updateCell(it.id));if(currentTab==='portfolio')renderPortfolio();}
+function doRefresh(){fetchAll();}
 function updateClock(){const n=new Date(),p=v=>String(v).padStart(2,'0');document.getElementById('clock').textContent=`${n.getFullYear()}/${p(n.getMonth()+1)}/${p(n.getDate())} ${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;}
 window.addEventListener('resize',()=>{
   const items=currentTab==='all'?ALL_ITEMS:SECTIONS.find(s=>s.id===currentTab)?.items??[];
-  items.forEach(it=>{const c=document.getElementById('c-'+it.id);if(!c)return;drawChart(c.querySelector('canvas'),S[it.id].hist,getDir(S[it.id].price,S[it.id].open));});
+  items.forEach(it=>{const c=document.getElementById('c-'+it.id);if(!c)return;drawChart(c.querySelector('canvas'),S[it.id]?.hist??[],getDir(S[it.id]?.price,S[it.id]?.open));});
   if(detOpenId)updateDet(detOpenId);if(currentTab==='portfolio')drawPortChart();
 });
-buildDOM();updateClock();setInterval(updateClock,1000);setInterval(tick,1500);
+buildDOM();updateClock();setInterval(updateClock,1000);fetchAll();setInterval(fetchAll,INTERVAL);
 </script>
 </body>
 </html>
